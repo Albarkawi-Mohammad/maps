@@ -1,5 +1,11 @@
 import React from 'react';
-import { TargetIcon, GlobeIcon, SpeakerLoudIcon, SpeakerOffIcon } from '@radix-ui/react-icons';
+import {
+  TargetIcon,
+  GlobeIcon,
+  SpeakerLoudIcon,
+  SpeakerOffIcon,
+  InfoCircledIcon
+} from '@radix-ui/react-icons';
 import { soundManager } from '../../spatial/soundEffects';
 
 export interface AppleFloatingControlsProps {
@@ -13,6 +19,7 @@ export interface AppleFloatingControlsProps {
   onToggleRouteOverview?: () => void;
   isAudioEnabled?: boolean;
   onToggleAudio?: () => void;
+  onOpenGuide?: () => void;
 }
 
 export const AppleFloatingControls: React.FC<AppleFloatingControlsProps> = ({
@@ -25,7 +32,8 @@ export const AppleFloatingControls: React.FC<AppleFloatingControlsProps> = ({
   isRouteOverviewMode = false,
   onToggleRouteOverview,
   isAudioEnabled = true,
-  onToggleAudio
+  onToggleAudio,
+  onOpenGuide
 }) => {
   return (
     <div className="ios-floating-trailing-stack">
@@ -100,6 +108,23 @@ export const AppleFloatingControls: React.FC<AppleFloatingControlsProps> = ({
             ) : (
               <SpeakerOffIcon width={17} height={17} color="#8e8e93" />
             )}
+          </button>
+          <div className="ios-stack-divider" />
+        </React.Fragment>
+      )}
+
+      {/* GPS & StVO Setup Guide Button */}
+      {onOpenGuide && !isNavigating && (
+        <React.Fragment>
+          <button
+            className="ios-stack-btn"
+            onClick={() => {
+              soundManager.playClickSound();
+              onOpenGuide();
+            }}
+            title="Navigation & StVO § 8 System Guide"
+          >
+            <InfoCircledIcon width={17} height={17} color="#1c1c1e" />
           </button>
           <div className="ios-stack-divider" />
         </React.Fragment>

@@ -70,6 +70,18 @@ const RAW_POIS: RawPoi[] = [
     coordinate: [7.6520, 51.9580]
   },
 
+  // House / Residence
+  {
+    name: 'Mein Zuhause / Home Residence',
+    address: 'Studtstraße 42, 48149 Münster',
+    coordinate: [7.6200, 51.9760]
+  },
+  {
+    name: 'Villa am Park Residence',
+    address: 'Schlossplatz 8, 48149 Münster',
+    coordinate: [7.6120, 51.9635]
+  },
+
   // Work & Office
   {
     name: 'Tech Campus & Innovation Hub',
@@ -178,5 +190,4 @@ export function getNearbyPois(center: [number, number] = [7.6261, 51.9607]): Sea
     };
   });
 }
-
 

@@ -50,13 +50,13 @@ export const AppleSearchBar: React.FC<AppleSearchBarProps> = ({
   const [isAddingCustom, setIsAddingCustom] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customAddress, setCustomAddress] = useState('');
+  const [lastOpenTrigger, setLastOpenTrigger] = useState(autoOpenTrigger);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (autoOpenTrigger && autoOpenTrigger > 0) {
-      setIsOpen(true);
-    }
-  }, [autoOpenTrigger]);
+  if (autoOpenTrigger && autoOpenTrigger !== lastOpenTrigger) {
+    setLastOpenTrigger(autoOpenTrigger);
+    setIsOpen(true);
+  }
 
   useEffect(() => {
     if (isOpen && inputRef.current) {

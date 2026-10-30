@@ -32,6 +32,7 @@ export const App: React.FC = () => {
   const [isAudioEnabled, setIsAudioEnabled] = useState<boolean>(true);
   const [hasWakeLock, setHasWakeLock] = useState<boolean>(false);
   const [showGuideModal, setShowGuideModal] = useState<boolean>(false);
+  const [clockTimestamp, setClockTimestamp] = useState<number>(() => Date.now());
 
   // Active Navigation & Route Preview State
   const [selectedPlace, setSelectedPlace] = useState<InspectedPlace | null>(null);
@@ -58,15 +59,29 @@ export const App: React.FC = () => {
   const [fitRouteBoundsTrigger, setFitRouteBoundsTrigger] = useState<number>(0);
 
   // Favorites & Search State
-  const [favorites, setFavorites] = useState<FavoriteLocation[]>(() => favoritesStorage.getFavorites());
+  const [favorites, setFavorites] = useState<FavoriteLocation[]>(() =>
+    favoritesStorage.getFavorites()
+  );
 
   // Location History & Timeline State
   const [showTimelineSheet, setShowTimelineSheet] = useState<boolean>(false);
-  const [timelineInspectPath, setTimelineInspectPath] = useState<Array<[number, number]> | undefined>(undefined);
+  const [timelineInspectPath, setTimelineInspectPath] = useState<
+    Array<[number, number]> | undefined
+  >(undefined);
 
   // Reference to track user position for calculations without stale closures
   const userPosRef = useRef(userPosition);
-  userPosRef.current = userPosition;
+  useEffect(() => {
+    userPosRef.current = userPosition;
+  }, [userPosition]);
+
+  // Keep clock timestamp updated for pure ETA rendering
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setClockTimestamp(Date.now());
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
 
   // 1. Initialize Real GPS Tracking & Screen Wake Lock on Mount
   useEffect(() => {
@@ -95,14 +110,19 @@ export const App: React.FC = () => {
   }, []);
 
   // 2. Request Directions & Calculate Route Preview for any place
-  const handleRequestDirections = async (place: InspectedPlace) => {
+  const handleRequestDirections = async (
+    place: InspectedPlace,
+    prefOverride?: RoutePreference
+  ) => {
+    const activePref = prefOverride || routePreference;
     setRoutePreviewActive(true);
     setIsLoadingRoute(true);
     setDestinationNotification(`Planning route to ${place.name}...`);
 
     try {
-      const route = await getRealDrivingRoute(userPosRef.current, place.coordinate);
+      const route = await getRealDrivingRoute(userPosRef.current, place.coordinate, activePref);
       setRouteResult(route);
+      setCurrentStepIndex(0);
       setFitRouteBoundsTrigger((prev) => prev + 1);
       soundManager.playClickSound();
     } catch (err) {
@@ -111,6 +131,14 @@ export const App: React.FC = () => {
     } finally {
       setIsLoadingRoute(false);
       setTimeout(() => setDestinationNotification(null), 3000);
+    }
+  };
+
+  // Re-calculate route when route preference pill changes in RoutePreviewSheet
+  const handleChangeRoutePreference = (newPref: RoutePreference) => {
+    setRoutePreference(newPref);
+    if (selectedPlace && routePreviewActive) {
+      void handleRequestDirections(selectedPlace, newPref);
     }
   };
 
@@ -123,6 +151,7 @@ export const App: React.FC = () => {
     });
     setRoutePreviewActive(false);
     setIsRouteOverviewMode(false);
+    setCurrentStepIndex(0);
     simStepRef.current = 0;
     soundManager.playLaneGuidanceChime();
     setDestinationNotification(`Navigating to ${selectedPlace.name}`);
@@ -158,7 +187,8 @@ export const App: React.FC = () => {
       const lat2 = (nextCoord[1] * Math.PI) / 180;
       const dLng = ((nextCoord[0] - currentCoord[0]) * Math.PI) / 180;
       const y = Math.sin(dLng) * Math.cos(lat2);
-      const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+      const x =
+        Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
       const brng = (Math.atan2(y, x) * 180) / Math.PI;
       const headingDeg = (brng + 360) % 360;
 
@@ -171,11 +201,15 @@ export const App: React.FC = () => {
         for (let s = 0; s < routeResult.steps.length; s++) {
           const stepCoord = routeResult.steps[s].location;
           const dist = Math.hypot(
-            (stepCoord[0] - currentCoord[0]) * 111320 * Math.cos((currentCoord[1] * Math.PI) / 180),
+            (stepCoord[0] - currentCoord[0]) *
+              111320 *
+              Math.cos((currentCoord[1] * Math.PI) / 180),
             (stepCoord[1] - currentCoord[1]) * 110540
           );
-          if (dist < 25) {
-            setCurrentStepIndex(Math.min(routeResult.steps.length - 1, s + 1));
+          if (dist < 28) {
+            setCurrentStepIndex((prevIdx) =>
+              Math.max(prevIdx, Math.min(routeResult.steps.length - 1, s + 1))
+            );
           }
         }
       }
@@ -191,9 +225,23 @@ export const App: React.FC = () => {
     soundManager.playClickSound();
   };
 
-  // 5. Current & Upcoming Maneuvers
-  const activeStep: Maneuver | undefined = routeResult?.steps[currentStepIndex];
+  // 5. Current & Upcoming Maneuvers with live countdown distance
+  const rawActiveStep: Maneuver | undefined = routeResult?.steps[currentStepIndex];
   const nextStep: Maneuver | undefined = routeResult?.steps[currentStepIndex + 1];
+
+  const activeStep: Maneuver | undefined = useMemo(() => {
+    if (!rawActiveStep) return undefined;
+    const target = nextStep ? nextStep.location : rawActiveStep.location;
+    const dLng =
+      (target[0] - userPosition[0]) * 111320 * Math.cos((userPosition[1] * Math.PI) / 180);
+    const dLat = (target[1] - userPosition[1]) * 110540;
+    const liveDist = Math.round(Math.hypot(dLng, dLat));
+    return {
+      ...rawActiveStep,
+      distanceToManeuverMeters:
+        liveDist > 0 && liveDist < 15000 ? liveDist : rawActiveStep.distanceToManeuverMeters
+    };
+  }, [rawActiveStep, nextStep, userPosition]);
 
   // 6. Dynamic Speed Limit & Zone Estimation based on speed & road type
   const currentSpeedZone: SpeedZoneInfo = useMemo(() => {
@@ -228,11 +276,7 @@ export const App: React.FC = () => {
     if (!activeStep) {
       return { lanes: [], isLookaheadActive: false, subText: '' };
     }
-    return evaluateMultiStepLanes(
-      activeStep,
-      nextStep,
-      currentSpeedZone.isAutobahn
-    );
+    return evaluateMultiStepLanes(activeStep, nextStep, currentSpeedZone.isAutobahn);
   }, [activeStep, nextStep, currentSpeedZone.isAutobahn]);
 
   // 8. Right-of-Way (Rechts vor Links) StVO § 8 Detection in Residential 30-Zones
@@ -258,27 +302,47 @@ export const App: React.FC = () => {
     );
   }, [userPosition, userSpeedKmh, currentSpeedZone.roadType, incomingRoad]);
 
-  // 9. Calculate ETA & Remaining Distance for Active Route
+  // 9. Calculate Live ETA & Remaining Distance along Active Route
   const { etaTime, remainingMinutes, remainingKm } = useMemo(() => {
-    if (!routeResult) {
+    if (!routeResult || routeResult.coordinates.length < 2) {
       return { etaTime: '--:--', remainingMinutes: 0, remainingKm: 0 };
     }
 
-    const remainingMeters = routeResult.distanceMeters;
-    const estKm = Math.max(0.1, remainingMeters / 1000);
-    const estMinutes = Math.max(1, Math.round(routeResult.durationSeconds / 60));
+    const coords = routeResult.coordinates;
+    let closestIdx = 0;
+    let minD = Infinity;
+    for (let i = 0; i < coords.length; i++) {
+      const dLng =
+        (coords[i][0] - userPosition[0]) * 111320 * Math.cos((userPosition[1] * Math.PI) / 180);
+      const dLat = (coords[i][1] - userPosition[1]) * 110540;
+      const d = Math.hypot(dLng, dLat);
+      if (d < minD) {
+        minD = d;
+        closestIdx = i;
+      }
+    }
 
-    const now = new Date();
-    now.setMinutes(now.getMinutes() + estMinutes);
-    const hours = String(now.getHours()).padStart(2, '0');
-    const mins = String(now.getMinutes()).padStart(2, '0');
+    const fractionRemaining = Math.max(
+      0.02,
+      (coords.length - 1 - closestIdx) / Math.max(1, coords.length - 1)
+    );
+    const remainingMeters = routeResult.distanceMeters * fractionRemaining;
+    const estKm = Math.max(0.1, remainingMeters / 1000);
+    const estMinutes = Math.max(
+      1,
+      Math.round((routeResult.durationSeconds * fractionRemaining) / 60)
+    );
+
+    const arrivalDate = new Date(clockTimestamp + estMinutes * 60000);
+    const hours = String(arrivalDate.getHours()).padStart(2, '0');
+    const mins = String(arrivalDate.getMinutes()).padStart(2, '0');
 
     return {
       etaTime: `${hours}:${mins}`,
       remainingMinutes: estMinutes,
       remainingKm: estKm
     };
-  }, [routeResult]);
+  }, [routeResult, userPosition, clockTimestamp]);
 
   // Handler: Add Favorite Location
   const handleAddFavorite = (
@@ -291,6 +355,8 @@ export const App: React.FC = () => {
     favoritesStorage.addFavorite(name, address, coordinate, category, emoji);
     setFavorites(favoritesStorage.getFavorites());
     soundManager.playClickSound();
+    setDestinationNotification(`Saved "${name}" to Places`);
+    setTimeout(() => setDestinationNotification(null), 2600);
   };
 
   // Handler: Remove Favorite Location
@@ -370,7 +436,7 @@ export const App: React.FC = () => {
         isRouteOverviewMode={isRouteOverviewMode}
       />
 
-      {/* Floating Controls (Compass, 3D Toggle, Re-center GPS, Route Overview) */}
+      {/* Floating Controls (Compass, 3D Toggle, Re-center GPS, Route Overview, System Guide) */}
       <AppleFloatingControls
         onRecenter={() => setRecenterTrigger((prev) => prev + 1)}
         onToggle3D={() => setIs3dView(!is3dView)}
@@ -382,6 +448,7 @@ export const App: React.FC = () => {
         onToggleRouteOverview={() => setIsRouteOverviewMode(!isRouteOverviewMode)}
         isAudioEnabled={isAudioEnabled}
         onToggleAudio={handleToggleAudio}
+        onOpenGuide={() => setShowGuideModal(true)}
       />
 
       {/* Mode 1: Browsing Sheet (When no place is selected and not navigating) */}
@@ -395,6 +462,7 @@ export const App: React.FC = () => {
           onOpenTimeline={() => setShowTimelineSheet(true)}
           currentVehiclePosition={userPosition}
           isPlaceSelected={false}
+          onAddFavorite={handleAddFavorite}
         />
       )}
 
@@ -424,7 +492,7 @@ export const App: React.FC = () => {
           routeResult={routeResult}
           isLoading={isLoadingRoute}
           preference={routePreference}
-          onChangePreference={setRoutePreference}
+          onChangePreference={handleChangeRoutePreference}
           onStartNavigation={handleStartNavigationFromPreview}
           onCancel={handleCancelRoutePreview}
         />
@@ -458,10 +526,7 @@ export const App: React.FC = () => {
 
           {/* Real-time Hardware Speedometer & Speed Sign */}
           <div className="bottom-speed-overlay">
-            <SpeedometerSign
-              currentSpeedKmh={userSpeedKmh}
-              speedZone={currentSpeedZone}
-            />
+            <SpeedometerSign currentSpeedKmh={userSpeedKmh} speedZone={currentSpeedZone} />
           </div>
 
           {/* Active Navigation Bottom Bar */}
@@ -524,7 +589,9 @@ export const App: React.FC = () => {
               <div className="guide-section">
                 <h4>100% Real Live GPS & Routing</h4>
                 <p>
-                  Directly connected to your device's hardware GPS chip, calculating real speed, real heading, and live OSRM turn-by-turn routing with German StVO § 8 lane safety monitoring.
+                  Directly connected to your device's hardware GPS chip, calculating real speed,
+                  real heading, and live OSRM turn-by-turn routing with German StVO § 8 lane safety
+                  monitoring.
                 </p>
               </div>
 

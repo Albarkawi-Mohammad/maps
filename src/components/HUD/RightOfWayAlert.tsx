@@ -13,10 +13,10 @@ export const RightOfWayAlert: React.FC<RightOfWayAlertProps> = ({
   audioEnabled = true
 }) => {
   useEffect(() => {
-    if (alert && alert.active && audioEnabled) {
+    if (alert?.active && audioEnabled) {
       soundManager.playYieldAlert();
     }
-  }, [alert?.active, alert?.streetName, audioEnabled]);
+  }, [alert, audioEnabled]);
 
   if (!alert || !alert.active) return null;
 

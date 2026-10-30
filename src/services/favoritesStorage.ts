@@ -3,7 +3,53 @@ import { classifyLocation } from './favoriteCategory';
 
 const STORAGE_KEY = 'apple_maps_favorites_v1';
 
-const INITIAL_FAVORITES: FavoriteLocation[] = [];
+const INITIAL_FAVORITES: FavoriteLocation[] = [
+  {
+    id: 'fav-1',
+    name: 'Pizzeria Trattoria Trevi',
+    address: 'Bült 2, 48143 Münster',
+    coordinate: [7.6291, 51.9625],
+    category: 'food',
+    emoji: '🍕',
+    createdAt: Date.now() - 86400000 * 3
+  },
+  {
+    id: 'fav-2',
+    name: 'Café Extrablatt Münster',
+    address: 'Salzstraße 11, 48143 Münster',
+    coordinate: [7.6300, 51.9615],
+    category: 'coffee',
+    emoji: '☕',
+    createdAt: Date.now() - 86400000 * 2
+  },
+  {
+    id: 'fav-3',
+    name: 'Aasee Ufer Beach & Promenade',
+    address: 'Bismarckallee 47, 48151 Münster',
+    coordinate: [7.6150, 51.9520],
+    category: 'water',
+    emoji: '🌊',
+    createdAt: Date.now() - 86400000
+  },
+  {
+    id: 'fav-4',
+    name: 'Home',
+    address: 'Studtstraße 42, 48149 Münster',
+    coordinate: [7.6200, 51.9760],
+    category: 'home',
+    emoji: '🏠',
+    createdAt: Date.now() - 86400000 * 5
+  },
+  {
+    id: 'fav-5',
+    name: 'Historic City Hall',
+    address: 'Prinzipalmarkt 10, 48143 Münster',
+    coordinate: [7.6279, 51.9616],
+    category: 'other',
+    emoji: '⭐', // Uncategorized place defaults to Star
+    createdAt: Date.now() - 86400000 * 4
+  }
+];
 
 export const favoritesStorage = {
   getFavorites(): FavoriteLocation[] {
@@ -92,4 +138,3 @@ export const favoritesStorage = {
     });
   }
 };
-

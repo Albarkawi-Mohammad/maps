@@ -15,8 +15,206 @@ const DEFAULT_SETTINGS: TimelineSettings = {
   recordIntervalSeconds: 3
 };
 
-// Start with no location history.
-function generateSeedDays(): TimelineDay[] { return []; }
+// Seed realistic, rich timeline history for the user's region (Ahlen / Münster / Westphalia)
+function generateSeedDays(): TimelineDay[] {
+  const now = new Date();
+  const todayKey = now.toISOString().split('T')[0];
+
+  const yesterday = new Date(now.getTime() - 86400000);
+  const yesterdayKey = yesterday.toISOString().split('T')[0];
+
+  const twoDaysAgo = new Date(now.getTime() - 86400000 * 2);
+  const twoDaysAgoKey = twoDaysAgo.toISOString().split('T')[0];
+
+  return [
+    // Today: Trip from Ahlen to Münster with café and dining stops
+    {
+      dateKey: todayKey,
+      dateDisplay: 'Today',
+      totalDistanceKm: 38.4,
+      totalDriveMinutes: 48,
+      citiesVisited: ['Ahlen', 'Münster'],
+      stops: [
+        {
+          id: 'stop-today-1',
+          name: 'Home',
+          address: 'Südstraße 14, Ahlen',
+          city: 'Ahlen',
+          category: 'home',
+          emoji: '🏠',
+          coordinate: [7.8920, 51.7610],
+          arrivalTime: new Date().setHours(8, 0, 0, 0),
+          departureTime: new Date().setHours(11, 30, 0, 0),
+          durationMinutes: 210
+        },
+        {
+          id: 'stop-today-2',
+          name: 'Pizzeria Trattoria Trevi',
+          address: 'Bült 2, 48143 Münster',
+          city: 'Münster',
+          category: 'food',
+          emoji: '🍕',
+          coordinate: [7.6291, 51.9625],
+          arrivalTime: new Date().setHours(12, 15, 0, 0),
+          departureTime: new Date().setHours(13, 0, 0, 0),
+          durationMinutes: 45
+        },
+        {
+          id: 'stop-today-3',
+          name: 'Café Extrablatt Münster',
+          address: 'Salzstraße 11, 48143 Münster',
+          city: 'Münster',
+          category: 'coffee',
+          emoji: '☕',
+          coordinate: [7.6300, 51.9615],
+          arrivalTime: new Date().setHours(13, 10, 0, 0),
+          departureTime: new Date().setHours(13, 50, 0, 0),
+          durationMinutes: 40
+        }
+      ],
+      trips: [
+        {
+          id: 'trip-today-1',
+          startTime: new Date().setHours(11, 30, 0, 0),
+          endTime: new Date().setHours(12, 15, 0, 0),
+          durationMinutes: 45,
+          distanceKm: 35.8,
+          avgSpeedKmh: 68,
+          maxSpeedKmh: 118,
+          startPlace: 'Südstraße, Ahlen',
+          endPlace: 'Bült 2, Münster',
+          startCity: 'Ahlen',
+          endCity: 'Münster',
+          path: [
+            [7.8920, 51.7610],
+            [7.8750, 51.7700],
+            [7.8200, 51.8100],
+            [7.7400, 51.8900],
+            [7.6500, 51.9400],
+            [7.6291, 51.9625]
+          ]
+        },
+        {
+          id: 'trip-today-2',
+          startTime: new Date().setHours(13, 0, 0, 0),
+          endTime: new Date().setHours(13, 10, 0, 0),
+          durationMinutes: 10,
+          distanceKm: 2.6,
+          avgSpeedKmh: 24,
+          maxSpeedKmh: 42,
+          startPlace: 'Bült 2, Münster',
+          endPlace: 'Salzstraße 11, Münster',
+          startCity: 'Münster',
+          endCity: 'Münster',
+          path: [
+            [7.6291, 51.9625],
+            [7.6280, 51.9620],
+            [7.6300, 51.9615]
+          ]
+        }
+      ]
+    },
+
+    // Yesterday: Scenic trip to Aasee Lake and Park
+    {
+      dateKey: yesterdayKey,
+      dateDisplay: 'Yesterday',
+      totalDistanceKm: 16.2,
+      totalDriveMinutes: 28,
+      citiesVisited: ['Münster'],
+      stops: [
+        {
+          id: 'stop-yest-1',
+          name: 'Aasee Ufer Beach & Promenade',
+          address: 'Bismarckallee 47, Münster',
+          city: 'Münster',
+          category: 'water',
+          emoji: '🌊',
+          coordinate: [7.6150, 51.9520],
+          arrivalTime: new Date(yesterday.getTime()).setHours(15, 0, 0, 0),
+          departureTime: new Date(yesterday.getTime()).setHours(16, 30, 0, 0),
+          durationMinutes: 90
+        },
+        {
+          id: 'stop-yest-2',
+          name: 'Historic City Hall',
+          address: 'Prinzipalmarkt 10, Münster',
+          city: 'Münster',
+          category: 'other',
+          emoji: '⭐',
+          coordinate: [7.6279, 51.9616],
+          arrivalTime: new Date(yesterday.getTime()).setHours(17, 0, 0, 0),
+          departureTime: new Date(yesterday.getTime()).setHours(18, 0, 0, 0),
+          durationMinutes: 60
+        }
+      ],
+      trips: [
+        {
+          id: 'trip-yest-1',
+          startTime: new Date(yesterday.getTime()).setHours(14, 30, 0, 0),
+          endTime: new Date(yesterday.getTime()).setHours(15, 0, 0, 0),
+          durationMinutes: 30,
+          distanceKm: 12.5,
+          avgSpeedKmh: 35,
+          maxSpeedKmh: 54,
+          startPlace: 'Prinzipalmarkt',
+          endPlace: 'Aasee Ufer Beach',
+          startCity: 'Münster',
+          endCity: 'Münster',
+          path: [
+            [7.6279, 51.9616],
+            [7.6210, 51.9580],
+            [7.6150, 51.9520]
+          ]
+        }
+      ]
+    },
+
+    // 2 Days Ago: Trip to Dortmund Tech Hub
+    {
+      dateKey: twoDaysAgoKey,
+      dateDisplay: 'Oct 23',
+      totalDistanceKm: 52.0,
+      totalDriveMinutes: 44,
+      citiesVisited: ['Ahlen', 'Hamm', 'Dortmund'],
+      stops: [
+        {
+          id: 'stop-prev-1',
+          name: 'Tech Campus & Office',
+          address: 'Emil-Figge-Straße, Dortmund',
+          city: 'Dortmund',
+          category: 'work',
+          emoji: '💼',
+          coordinate: [7.4120, 51.4920],
+          arrivalTime: new Date(twoDaysAgo.getTime()).setHours(9, 30, 0, 0),
+          departureTime: new Date(twoDaysAgo.getTime()).setHours(16, 0, 0, 0),
+          durationMinutes: 390
+        }
+      ],
+      trips: [
+        {
+          id: 'trip-prev-1',
+          startTime: new Date(twoDaysAgo.getTime()).setHours(8, 45, 0, 0),
+          endTime: new Date(twoDaysAgo.getTime()).setHours(9, 30, 0, 0),
+          durationMinutes: 45,
+          distanceKm: 52.0,
+          avgSpeedKmh: 82,
+          maxSpeedKmh: 135,
+          startPlace: 'Ahlen City',
+          endPlace: 'Dortmund Tech Campus',
+          startCity: 'Ahlen',
+          endCity: 'Dortmund',
+          path: [
+            [7.8920, 51.7610],
+            [7.8100, 51.6800],
+            [7.6200, 51.5800],
+            [7.4120, 51.4920]
+          ]
+        }
+      ]
+    }
+  ];
+}
 
 class TimelineStorageService {
   public getSettings(): TimelineSettings {
@@ -163,4 +361,3 @@ class TimelineStorageService {
 }
 
 export const timelineStorage = new TimelineStorageService();
-

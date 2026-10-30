@@ -15,7 +15,8 @@ import {
   SewingPinFilledIcon,
   ReloadIcon,
   MagicWandIcon,
-  PaperPlaneIcon
+  PaperPlaneIcon,
+  CheckIcon
 } from '@radix-ui/react-icons';
 import type {
   FavoriteLocation,
@@ -37,6 +38,13 @@ export interface AppleMapsBottomSheetProps {
   onOpenTimeline: () => void;
   currentVehiclePosition: [number, number];
   isPlaceSelected?: boolean;
+  onAddFavorite?: (
+    name: string,
+    address: string,
+    coordinate: [number, number],
+    category?: LocationCategoryType,
+    emoji?: string
+  ) => void;
 }
 
 const CATEGORY_CHIPS: Array<{
@@ -60,7 +68,49 @@ function rubberBand(distance: number, dimension: number, constant = 0.55): numbe
 }
 
 function projectMomentum(velocityPxPerSec: number, decelerationRate = 0.996): number {
-  return (velocityPxPerSec / 1000) * decelerationRate / (1 - decelerationRate);
+  return ((velocityPxPerSec / 1000) * decelerationRate) / (1 - decelerationRate);
+}
+
+function computeDetents() {
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const fullH = Math.min(vh - 44, Math.round(vh * 0.92));
+  const halfH = Math.min(500, Math.round(vh * 0.50));
+  const peekH = PEEK_HEIGHT;
+
+  return {
+    fullH,
+    halfH,
+    peekH,
+    fullY: 0,
+    halfY: Math.max(0, fullH - halfH),
+    peekY: Math.max(0, fullH - peekH)
+  };
+}
+
+function computeDetentY(d: SheetDetent): number {
+  const { fullY, halfY, peekY } = computeDetents();
+  switch (d) {
+    case 'full':
+      return fullY;
+    case 'half':
+      return halfY;
+    case 'peek':
+    default:
+      return peekY;
+  }
+}
+
+function computeDistanceFromVehicle(
+  coord: [number, number],
+  vehiclePos: [number, number]
+): { distM: number; display: string } {
+  const dLng =
+    (coord[0] - vehiclePos[0]) * 111.32 * Math.cos((vehiclePos[1] * Math.PI) / 180);
+  const dLat = (coord[1] - vehiclePos[1]) * 110.54;
+  const directKm = Math.max(0.05, Math.hypot(dLng, dLat) * 1.25);
+  const distM = Math.round(directKm * 1000);
+  const display = distM > 1000 ? `${(distM / 1000).toFixed(1)} km` : `${distM} m`;
+  return { distM, display };
 }
 
 export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
@@ -68,13 +118,21 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
   onSelectPlace,
   onOpenTimeline,
   currentVehiclePosition,
-  isPlaceSelected = false
+  isPlaceSelected = false,
+  onAddFavorite
 }) => {
   const [detent, setDetent] = useState<SheetDetent>('peek');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<LocationCategoryType | 'all'>('all');
   const [liveSearchResults, setLiveSearchResults] = useState<SearchResultItem[]>([]);
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
+  const [isListeningVoice, setIsListeningVoice] = useState(false);
+
+  // Inline Add Custom Place state
+  const [isAddingPlace, setIsAddingPlace] = useState(false);
+  const [newPlaceName, setNewPlaceName] = useState('');
+  const [newPlaceAddress, setNewPlaceAddress] = useState('');
+  const [newPlacePresetCat, setNewPlacePresetCat] = useState<LocationCategoryType | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -88,40 +146,10 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
   const isTapCandidateRef = useRef(false);
   const dragStartTimeRef = useRef(0);
 
-  // Compute detent vertical positions based on viewport
-  const getDetents = () => {
-    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
-    const fullH = Math.min(vh - 44, Math.round(vh * 0.92));
-    const halfH = Math.min(500, Math.round(vh * 0.50));
-    const peekH = PEEK_HEIGHT;
-
-    return {
-      fullH,
-      halfH,
-      peekH,
-      fullY: 0,
-      halfY: Math.max(0, fullH - halfH),
-      peekY: Math.max(0, fullH - peekH)
-    };
-  };
-
-  const getDetentY = (d: SheetDetent) => {
-    const { fullY, halfY, peekY } = getDetents();
-    switch (d) {
-      case 'full':
-        return fullY;
-      case 'half':
-        return halfY;
-      case 'peek':
-      default:
-        return peekY;
-    }
-  };
-
   const readVisualTranslateY = (el: HTMLElement): number => {
     const style = window.getComputedStyle(el);
     const matrixStr = style.transform || style.webkitTransform;
-    if (!matrixStr || matrixStr === 'none') return getDetentY(detent);
+    if (!matrixStr || matrixStr === 'none') return computeDetentY(detent);
     try {
       const matrix = new DOMMatrixReadOnly(matrixStr);
       return matrix.m42;
@@ -131,7 +159,7 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
         const parts = match[1].split(', ');
         return parseFloat(parts[5] || parts[13] || '0');
       }
-      return getDetentY(detent);
+      return computeDetentY(detent);
     }
   };
 
@@ -139,7 +167,7 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
     setDetent(targetDetent);
     if (!sheetRef.current) return;
 
-    const targetY = getDetentY(targetDetent);
+    const targetY = computeDetentY(targetDetent);
     currentVisualYRef.current = targetY;
 
     // Apple WWDC fluid spring transition
@@ -150,7 +178,7 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
   // Sync detent state with style on mount or state change
   useEffect(() => {
     if (isDraggingRef.current || !sheetRef.current) return;
-    const targetY = getDetentY(detent);
+    const targetY = computeDetentY(detent);
     currentVisualYRef.current = targetY;
     sheetRef.current.style.transition = 'transform 0.42s cubic-bezier(0.22, 1, 0.36, 1)';
     sheetRef.current.style.transform = `translate3d(0, ${targetY}px, 0)`;
@@ -160,7 +188,7 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
   useEffect(() => {
     const handleResize = () => {
       if (isDraggingRef.current || !sheetRef.current) return;
-      const targetY = getDetentY(detent);
+      const targetY = computeDetentY(detent);
       currentVisualYRef.current = targetY;
       sheetRef.current.style.transition = 'none';
       sheetRef.current.style.transform = `translate3d(0, ${targetY}px, 0)`;
@@ -172,17 +200,22 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
   // Fluid Direct Manipulation Pointer Handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!sheetRef.current) return;
-    // Don't intercept text typing or clear button
     const target = e.target as HTMLElement;
-    if (target.tagName === 'INPUT' || target.closest('.ios-search-clear-btn') || target.closest('.ios-profile-avatar-badge')) {
+    if (
+      target.tagName === 'INPUT' ||
+      target.closest('.ios-search-clear-btn') ||
+      target.closest('.ios-profile-avatar-badge') ||
+      target.closest('.ios-mic-icon')
+    ) {
       return;
     }
 
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    } catch {}
+    } catch {
+      // Ignore pointer capture errors on synthetic events
+    }
 
-    // Interruptibility: read exact visual position mid-flight
     const currentY = readVisualTranslateY(sheetRef.current);
     currentVisualYRef.current = currentY;
     startSheetYRef.current = currentY;
@@ -210,14 +243,12 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
     }
 
     const rawY = startSheetYRef.current + deltaY;
-    const { fullY, peekY, fullH, peekH } = getDetents();
+    const { fullY, peekY, fullH, peekH } = computeDetents();
 
     let clampedY = rawY;
     if (rawY < fullY) {
-      // Elastic rubber-band resistance above full
       clampedY = fullY + rubberBand(rawY - fullY, fullH, 0.55);
     } else if (rawY > peekY) {
-      // Elastic rubber-band resistance below peek
       clampedY = peekY + rubberBand(rawY - peekY, peekH, 0.55);
     }
 
@@ -231,14 +262,20 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
 
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {}
+    } catch {
+      // Ignore release errors
+    }
 
-    const { fullY, halfY, peekY } = getDetents();
+    const { fullY, halfY, peekY } = computeDetents();
     const history = pointerHistoryRef.current;
     const elapsed = performance.now() - dragStartTimeRef.current;
 
     // Quick tap on grabber toggles detents
-    if (isTapCandidateRef.current && elapsed < 260 && (e.target as HTMLElement).closest('.ios-sheet-grabber-zone')) {
+    if (
+      isTapCandidateRef.current &&
+      elapsed < 260 &&
+      (e.target as HTMLElement).closest('.ios-sheet-grabber-zone')
+    ) {
       soundManager.playClickSound();
       const nextDetent: SheetDetent =
         detent === 'peek' ? 'half' : detent === 'half' ? 'full' : 'peek';
@@ -269,7 +306,6 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
     } else if (velocityY > 600) {
       targetDetent = detent === 'full' ? (velocityY > 1100 ? 'peek' : 'half') : 'peek';
     } else {
-      // Find nearest detent to projected resting position
       const distFull = Math.abs(projectedY - fullY);
       const distHalf = Math.abs(projectedY - halfY);
       const distPeek = Math.abs(projectedY - peekY);
@@ -286,33 +322,14 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
     animateToDetent(targetDetent);
   };
 
-  // If place details is open, collapse or hide this sheet
-  if (isPlaceSelected) {
-    return null;
-  }
-
-  // Calculate distance from vehicle position
-  const calculateDistance = (coord: [number, number]): { distM: number; display: string } => {
-    const dLng =
-      (coord[0] - currentVehiclePosition[0]) *
-      111.32 *
-      Math.cos((currentVehiclePosition[1] * Math.PI) / 180);
-    const dLat = (coord[1] - currentVehiclePosition[1]) * 110.54;
-    const directKm = Math.max(0.05, Math.hypot(dLng, dLat) * 1.25);
-    const distM = Math.round(directKm * 1000);
-    const display = distM > 1000 ? `${(distM / 1000).toFixed(1)} km` : `${distM} m`;
-    return { distM, display };
-  };
-
   // Live online geocoding with Photon API when typing a real query
   useEffect(() => {
     const trimmed = searchQuery.trim();
     if (!trimmed || trimmed.length < 2) {
-      setLiveSearchResults([]);
-      setIsSearchingOnline(false);
       return;
     }
 
+    let cancelled = false;
     const timer = setTimeout(async () => {
       setIsSearchingOnline(true);
       try {
@@ -321,7 +338,7 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
           trimmed
         )}&lat=${lat}&lon=${lng}&limit=8`;
         const res = await fetch(url, { signal: AbortSignal.timeout(3500) });
-        if (res.ok) {
+        if (res.ok && !cancelled) {
           const data = await res.json();
           if (data.features && data.features.length > 0) {
             const mapped: SearchResultItem[] = data.features.map((f: any, idx: number) => {
@@ -338,7 +355,7 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
                 p.osm_value || p.osm_key || p.type || ''
               );
               return {
-                id: `online-${p.osm_id || idx}-${Date.now()}`,
+                id: `online-${p.osm_id || idx}`,
                 name,
                 address,
                 coordinate: coords,
@@ -353,11 +370,16 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
       } catch (err) {
         console.warn('Live online search warning:', err);
       } finally {
-        setIsSearchingOnline(false);
+        if (!cancelled) {
+          setIsSearchingOnline(false);
+        }
       }
     }, 280);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [searchQuery, currentVehiclePosition]);
 
   // Nearby POIs clustered around the user's live position
@@ -369,8 +391,7 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
   const filteredPlaces = useMemo(() => {
     let combined = [...baseNearbyList];
 
-    // If online results returned, put them at the top
-    if (liveSearchResults.length > 0) {
+    if (searchQuery.trim().length >= 2 && liveSearchResults.length > 0) {
       combined = [...liveSearchResults, ...combined];
     }
 
@@ -390,7 +411,10 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
 
     return combined
       .map((p) => {
-        const { distM, display } = calculateDistance(p.coordinate);
+        const { distM, display } = computeDistanceFromVehicle(
+          p.coordinate,
+          currentVehiclePosition
+        );
         return {
           ...p,
           distanceMeters: distM,
@@ -411,7 +435,6 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
       coordinate: [number, number];
     }> = [];
 
-    // Collect recent stops from timeline
     if (timelineDays.length > 0) {
       for (const day of timelineDays) {
         for (const stop of day.stops) {
@@ -430,7 +453,6 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
       }
     }
 
-    // Complement with favorites if needed
     for (const fav of favorites) {
       if (!visitedStops.some((s) => s.name === fav.name)) {
         visitedStops.push({
@@ -457,6 +479,74 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
     }
   };
 
+  const handleVoiceDictation = () => {
+    soundManager.playClickSound();
+    if (detent === 'peek') {
+      animateToDetent('half');
+    }
+    const SpeechRec =
+      (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any })
+        .SpeechRecognition ||
+      (window as unknown as { webkitSpeechRecognition?: any }).webkitSpeechRecognition;
+
+    if (SpeechRec) {
+      try {
+        const recognition = new SpeechRec();
+        recognition.lang = 'de-DE';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+        setIsListeningVoice(true);
+        recognition.onresult = (event: any) => {
+          const transcript = event.results?.[0]?.[0]?.transcript;
+          if (transcript) {
+            setSearchQuery(transcript);
+          }
+          setIsListeningVoice(false);
+        };
+        recognition.onerror = () => {
+          setIsListeningVoice(false);
+          searchInputRef.current?.focus();
+        };
+        recognition.onend = () => {
+          setIsListeningVoice(false);
+        };
+        recognition.start();
+        return;
+      } catch {
+        setIsListeningVoice(false);
+      }
+    }
+    searchInputRef.current?.focus();
+  };
+
+  const openAddPlaceForm = (presetCategory: LocationCategoryType | null = null, defaultName = '') => {
+    soundManager.playClickSound();
+    setNewPlacePresetCat(presetCategory);
+    setNewPlaceName(defaultName);
+    setNewPlaceAddress('');
+    setIsAddingPlace(true);
+    if (detent === 'peek') {
+      animateToDetent('half');
+    }
+  };
+
+  const handleSaveNewPlace = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPlaceName.trim() || !onAddFavorite) return;
+    const addr = newPlaceAddress.trim() || 'Münster Area';
+    const classified = classifyLocation(newPlaceName, addr);
+    const finalCat = newPlacePresetCat || classified.category;
+    const offsetCoord: [number, number] = [
+      Number((currentVehiclePosition[0] + (Math.random() - 0.5) * 0.004).toFixed(5)),
+      Number((currentVehiclePosition[1] + (Math.random() - 0.5) * 0.004).toFixed(5))
+    ];
+    onAddFavorite(newPlaceName.trim(), addr, offsetCoord, finalCat, classified.emoji);
+    setIsAddingPlace(false);
+    setNewPlaceName('');
+    setNewPlaceAddress('');
+    setNewPlacePresetCat(null);
+  };
+
   const inspectItem = (
     id: string,
     name: string,
@@ -465,14 +555,14 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
     category: LocationCategoryType
   ) => {
     soundManager.playClickSound();
-    const { distM } = calculateDistance(coordinate);
+    const { distM } = computeDistanceFromVehicle(coordinate, currentVehiclePosition);
     onSelectPlace({
       id,
       name,
       address,
       coordinate,
       category,
-      categoryLabel: category.toUpperCase(),
+      categoryLabel: CATEGORY_DEFINITIONS[category]?.label || category.toUpperCase(),
       distanceMeters: distM,
       hours: 'Open until 22:00',
       ratingPercent: 98,
@@ -480,12 +570,17 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
     });
   };
 
+  // If place details is open, hide this sheet (after all hooks!)
+  if (isPlaceSelected) {
+    return null;
+  }
+
   return (
     <div
       ref={sheetRef}
       className={`ios-apple-bottom-sheet detent-${detent}`}
       style={{
-        transform: `translate3d(0, ${getDetentY(detent)}px, 0)`
+        transform: `translate3d(0, ${computeDetentY(detent)}px, 0)`
       }}
     >
       {/* 
@@ -520,7 +615,9 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
               if (detent === 'peek') animateToDetent('half');
             }}
             onFocus={handleSearchFocus}
-            placeholder="Search places or addresses..."
+            placeholder={
+              isListeningVoice ? 'Listening for destination...' : 'Search places or addresses...'
+            }
             className="ios-search-native-input"
           />
           {isSearchingOnline && (
@@ -544,15 +641,13 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
                 height="18"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="currentColor"
+                stroke={isListeningVoice ? '#ff3b30' : 'currentColor'}
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 className="ios-mic-icon"
-                onClick={() => {
-                  soundManager.playClickSound();
-                  searchInputRef.current?.focus();
-                }}
+                onClick={handleVoiceDictation}
+                style={{ cursor: 'pointer' }}
               >
                 <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
@@ -589,7 +684,10 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
                   if (detent === 'peek') animateToDetent('half');
                 }}
               >
-                <span className="chip-icon-wrapper" style={{ display: 'inline-flex', alignItems: 'center', marginRight: '6px' }}>
+                <span
+                  className="chip-icon-wrapper"
+                  style={{ display: 'inline-flex', alignItems: 'center', marginRight: '6px' }}
+                >
                   <Icon width={14} height={14} />
                 </span>
                 <span className="chip-label">{chip.label}</span>
@@ -601,7 +699,7 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
 
       {/* 
         2. Scrollable Sheet Content (Revealed in Half & Full Detents)
-        Contains Quick Places, Timeline Highlight, Recent Stops, and POI Directory.
+        Contains Quick Places, Inline Add Form, Timeline Highlight, Recent Stops, and POI Directory.
       */}
       <div className="ios-sheet-scrollable-body">
         {/* 1. Quick Places Row: Home, Work, + Add */}
@@ -625,8 +723,7 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
                       'home'
                     );
                   } else {
-                    soundManager.playClickSound();
-                    searchInputRef.current?.focus();
+                    openAddPlaceForm('home', 'My Home');
                   }
                 }}
               >
@@ -634,9 +731,7 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
                   <HomeIcon width={22} height={22} color="#ffffff" />
                 </div>
                 <div className="ios-place-label">Home</div>
-                <div className="ios-place-sublink">
-                  {homeLocation ? 'View' : 'Add'}
-                </div>
+                <div className="ios-place-sublink">{homeLocation ? 'View' : 'Add'}</div>
               </div>
 
               {/* Work Action */}
@@ -652,8 +747,7 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
                       'work'
                     );
                   } else {
-                    soundManager.playClickSound();
-                    searchInputRef.current?.focus();
+                    openAddPlaceForm('work', 'Office / Work');
                   }
                 }}
               >
@@ -661,28 +755,119 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
                   <IdCardIcon width={22} height={22} color="#ffffff" />
                 </div>
                 <div className="ios-place-label">Work</div>
-                <div className="ios-place-sublink">
-                  {workLocation ? 'View' : 'Add'}
-                </div>
+                <div className="ios-place-sublink">{workLocation ? 'View' : 'Add'}</div>
               </div>
 
               {/* Add Custom Place */}
               <div
                 className="ios-place-action-item"
-                onClick={() => {
-                  soundManager.playClickSound();
-                  searchInputRef.current?.focus();
-                }}
+                onClick={() => openAddPlaceForm(null, '')}
               >
                 <div className="ios-place-circle-btn light-blue-tint">
                   <PlusIcon width={22} height={22} color="#007aff" />
                 </div>
                 <div className="ios-place-label">Add</div>
-                <div className="ios-place-sublink" style={{ visibility: 'hidden' }}>
-                  -
-                </div>
+                <div className="ios-place-sublink">Save</div>
               </div>
             </div>
+
+            {/* Inline Add Favorite Place Drawer */}
+            {isAddingPlace && (
+              <form
+                onSubmit={handleSaveNewPlace}
+                style={{
+                  marginTop: '12px',
+                  padding: '12px',
+                  borderRadius: '14px',
+                  background: 'rgba(255, 255, 255, 0.88)',
+                  border: '1px solid rgba(0, 122, 255, 0.22)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: '#1c1c1e'
+                  }}
+                >
+                  <span>
+                    {newPlacePresetCat === 'home'
+                      ? 'Save Home Location'
+                      : newPlacePresetCat === 'work'
+                      ? 'Save Work Location'
+                      : 'Add New Favorite Place'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingPlace(false)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: '#8e8e93',
+                      padding: '2px'
+                    }}
+                  >
+                    <Cross2Icon width={15} height={15} />
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Place name (e.g. Café Arte, My Home)"
+                  value={newPlaceName}
+                  onChange={(e) => setNewPlaceName(e.target.value)}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(60,60,67,0.18)',
+                    fontSize: '14px',
+                    outline: 'none'
+                  }}
+                  autoFocus
+                />
+                <input
+                  type="text"
+                  placeholder="Street or neighborhood (optional)"
+                  value={newPlaceAddress}
+                  onChange={(e) => setNewPlaceAddress(e.target.value)}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(60,60,67,0.18)',
+                    fontSize: '14px',
+                    outline: 'none'
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={!newPlaceName.trim()}
+                  style={{
+                    marginTop: '2px',
+                    padding: '9px 12px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: newPlaceName.trim() ? '#007aff' : 'rgba(60,60,67,0.2)',
+                    color: '#ffffff',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    cursor: newPlaceName.trim() ? 'pointer' : 'not-allowed',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <CheckIcon width={16} height={16} />
+                  <span>Save to Places</span>
+                </button>
+              </form>
+            )}
           </div>
         )}
 
@@ -709,7 +894,15 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
                   100% private on-device location history & visited stops
                 </div>
               </div>
-              <button className="ios-siri-more-btn" onClick={(e) => e.stopPropagation()}>
+              <button
+                className="ios-siri-more-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  soundManager.playClickSound();
+                  onOpenTimeline();
+                }}
+                aria-label="Open Trip Timeline"
+              >
                 <DotsHorizontalIcon width={18} height={18} color="#8e8e93" />
               </button>
             </div>
@@ -725,7 +918,10 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
             </div>
             <div className="ios-recents-card-container">
               {recentPlaces.map((item, idx) => {
-                const { display } = calculateDistance(item.coordinate);
+                const { display } = computeDistanceFromVehicle(
+                  item.coordinate,
+                  currentVehiclePosition
+                );
                 const catDef = CATEGORY_DEFINITIONS[item.category] || CATEGORY_DEFINITIONS.other;
                 return (
                   <div
@@ -755,7 +951,20 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
                         {display} • {item.address}
                       </div>
                     </div>
-                    <button className="ios-item-more-btn" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className="ios-item-more-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        inspectItem(
+                          item.id,
+                          item.name,
+                          item.address,
+                          item.coordinate,
+                          item.category
+                        );
+                      }}
+                      aria-label={`Inspect ${item.name}`}
+                    >
                       <DotsHorizontalIcon width={18} height={18} color="#8e8e93" />
                     </button>
                   </div>
@@ -786,7 +995,8 @@ export const AppleMapsBottomSheet: React.FC<AppleMapsBottomSheetProps> = ({
               </div>
             ) : (
               filteredPlaces.slice(0, 14).map((poi, idx) => {
-                const catDef = CATEGORY_DEFINITIONS[poi.predictedCategory] || CATEGORY_DEFINITIONS.other;
+                const catDef =
+                  CATEGORY_DEFINITIONS[poi.predictedCategory] || CATEGORY_DEFINITIONS.other;
                 return (
                   <div
                     key={poi.id}

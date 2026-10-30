@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Map as MapLibreMap,
   Marker as MapLibreMarker,
@@ -14,7 +14,7 @@ import type { IntersectingRoad } from '../../spatial/rightOfWay';
 import { CATEGORY_DEFINITIONS } from '../../services/favoriteCategory';
 import { reverseGeocodeCoordinate } from '../../services/reverseGeocode';
 import { getNearbyPois } from '../../services/samplePois';
-import { getCategorySvgString } from '../Common/CategoryIcon';
+import { getCategorySvgString } from '../../services/categorySvg';
 import { TargetIcon } from '@radix-ui/react-icons';
 import { soundManager } from '../../spatial/soundEffects';
 
@@ -32,7 +32,8 @@ const computeForwardRouteBearing = (
   let closestIdx = 0;
   let minDist = Infinity;
   for (let i = 0; i < routeCoords.length; i++) {
-    const dLng = (routeCoords[i][0] - currentPos[0]) * 111320 * Math.cos((currentPos[1] * Math.PI) / 180);
+    const dLng =
+      (routeCoords[i][0] - currentPos[0]) * 111320 * Math.cos((currentPos[1] * Math.PI) / 180);
     const dLat = (routeCoords[i][1] - currentPos[1]) * 110540;
     const d = Math.hypot(dLng, dLat);
     if (d < minDist) {
@@ -44,7 +45,10 @@ const computeForwardRouteBearing = (
   let targetIdx = Math.min(routeCoords.length - 1, closestIdx + 1);
   let accumulatedDist = 0;
   for (let i = closestIdx; i < routeCoords.length - 1; i++) {
-    const dLng = (routeCoords[i + 1][0] - routeCoords[i][0]) * 111320 * Math.cos((routeCoords[i][1] * Math.PI) / 180);
+    const dLng =
+      (routeCoords[i + 1][0] - routeCoords[i][0]) *
+      111320 *
+      Math.cos((routeCoords[i][1] * Math.PI) / 180);
     const dLat = (routeCoords[i + 1][1] - routeCoords[i][1]) * 110540;
     accumulatedDist += Math.hypot(dLng, dLat);
     if (accumulatedDist >= minLookaheadMeters) {
@@ -246,11 +250,57 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   const selectedPlaceMarkerRef = useRef<MapLibreMarker | null>(null);
 
   // Turn-by-Turn Driving Follow State
-  const [isFollowingDriver, setIsFollowingDriver] = React.useState<boolean>(true);
+  const [isFollowingDriver, setIsFollowingDriver] = useState<boolean>(true);
+  const [prevIsNavigating, setPrevIsNavigating] = useState<boolean>(isNavigating);
+  const [prevOverviewMode, setPrevOverviewMode] = useState<boolean>(isRouteOverviewMode);
+  const [prevRecenterTrigger, setPrevRecenterTrigger] = useState<number | undefined>(recenterTrigger);
+
+  // Adjust follow state on prop transitions
+  if (isNavigating !== prevIsNavigating) {
+    setPrevIsNavigating(isNavigating);
+    if (isNavigating) {
+      setIsFollowingDriver(true);
+    }
+  }
+  if (isRouteOverviewMode !== prevOverviewMode) {
+    setPrevOverviewMode(isRouteOverviewMode);
+    if (!isRouteOverviewMode && isNavigating) {
+      setIsFollowingDriver(true);
+    }
+  }
+  if (recenterTrigger !== prevRecenterTrigger) {
+    setPrevRecenterTrigger(recenterTrigger);
+    if (recenterTrigger && recenterTrigger > 0) {
+      setIsFollowingDriver(true);
+    }
+  }
+
+  // Latest-value refs synchronized inside useEffect
   const isNavigatingRef = useRef(isNavigating);
-  isNavigatingRef.current = isNavigating;
-  const isFollowingRef = useRef(isFollowingDriver);
-  isFollowingRef.current = isFollowingDriver;
+  const routeCoordsRef = useRef(routeCoordinates);
+  const onInspectPlaceRef = useRef(onInspectPlace);
+  const favoritesRef = useRef(favorites);
+  const currentPosRef = useRef(currentPosition);
+  const headingRef = useRef(heading);
+  const is3dViewRef = useRef(is3dView);
+
+  useEffect(() => {
+    isNavigatingRef.current = isNavigating;
+    routeCoordsRef.current = routeCoordinates;
+    onInspectPlaceRef.current = onInspectPlace;
+    favoritesRef.current = favorites;
+    currentPosRef.current = currentPosition;
+    headingRef.current = heading;
+    is3dViewRef.current = is3dView;
+  }, [
+    isNavigating,
+    routeCoordinates,
+    onInspectPlace,
+    favorites,
+    currentPosition,
+    heading,
+    is3dView
+  ]);
 
   // SVG Overlay elements for 100% guaranteed, rock-solid route line projection
   const svgOverlayRef = useRef<SVGSVGElement | null>(null);
@@ -261,15 +311,6 @@ export const MapViewer: React.FC<MapViewerProps> = ({
 
   // Active path tracking ref
   const activeRoutePathRef = useRef<Array<[number, number]>>([]);
-
-  const routeCoordsRef = useRef(routeCoordinates);
-  routeCoordsRef.current = routeCoordinates;
-
-  const onInspectPlaceRef = useRef(onInspectPlace);
-  onInspectPlaceRef.current = onInspectPlace;
-
-  const favoritesRef = useRef(favorites);
-  favoritesRef.current = favorites;
 
   // Real-time projection of route line coordinates to screen pixels
   const syncSvgRouteOverlay = () => {
@@ -337,18 +378,18 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     }
   };
 
-  // Initialize Map
+  // Initialize Map once on mount
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
     const map = new MapLibreMap({
       container: mapContainerRef.current,
       style: APPLE_MAPS_STYLE,
-      center: currentPosition,
+      center: currentPosRef.current,
       zoom: 16.5,
       maxZoom: 20,
-      pitch: is3dView ? 52 : 0,
-      bearing: heading,
+      pitch: is3dViewRef.current ? 52 : 0,
+      bearing: headingRef.current,
       attributionControl: false
     });
 
@@ -466,7 +507,7 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       element: vehicleEl,
       rotationAlignment: 'map'
     })
-      .setLngLat(currentPosition)
+      .setLngLat(currentPosRef.current)
       .addTo(map);
 
     vehicleMarkerRef.current = vehicleMarker;
@@ -676,16 +717,17 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     if (!map) return;
 
     if (isNavigating) {
-      setIsFollowingDriver(true);
+      const curPos = currentPosRef.current;
+      const curHeading = headingRef.current;
       const forwardBearing =
-        heading > 0
-          ? heading
-          : computeForwardRouteBearing(currentPosition, routeCoordsRef.current);
+        curHeading > 0
+          ? curHeading
+          : computeForwardRouteBearing(curPos, routeCoordsRef.current);
 
       map.flyTo({
-        center: currentPosition,
+        center: curPos,
         zoom: DRIVING_ZOOM_LEVEL,
-        pitch: is3dView ? DRIVING_3D_PITCH : 0,
+        pitch: is3dViewRef.current ? DRIVING_3D_PITCH : 0,
         bearing: forwardBearing,
         padding: { top: 210, bottom: 90, left: 0, right: 0 },
         duration: 1100
@@ -696,7 +738,7 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   // Route Overview Mode Toggle during Navigation
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !isNavigating) return;
+    if (!map || !isNavigatingRef.current) return;
 
     if (isRouteOverviewMode && routeCoordsRef.current && routeCoordsRef.current.length >= 2) {
       try {
@@ -712,16 +754,17 @@ export const MapViewer: React.FC<MapViewerProps> = ({
         console.warn('Route overview error:', err);
       }
     } else if (!isRouteOverviewMode) {
-      setIsFollowingDriver(true);
+      const curPos = currentPosRef.current;
+      const curHeading = headingRef.current;
       const forwardBearing =
-        heading > 0
-          ? heading
-          : computeForwardRouteBearing(currentPosition, routeCoordsRef.current);
+        curHeading > 0
+          ? curHeading
+          : computeForwardRouteBearing(curPos, routeCoordsRef.current);
 
       map.flyTo({
-        center: currentPosition,
+        center: curPos,
         zoom: DRIVING_ZOOM_LEVEL,
-        pitch: is3dView ? DRIVING_3D_PITCH : 0,
+        pitch: is3dViewRef.current ? DRIVING_3D_PITCH : 0,
         bearing: forwardBearing,
         padding: { top: 210, bottom: 90, left: 0, right: 0 },
         duration: 900
@@ -771,17 +814,21 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   useEffect(() => {
     const map = mapRef.current;
     if (map && recenterTrigger && recenterTrigger > 0) {
-      setIsFollowingDriver(true);
-      const forwardBearing = isNavigating
-        ? (heading > 0 ? heading : computeForwardRouteBearing(currentPosition, routeCoordsRef.current))
-        : heading;
+      const curPos = currentPosRef.current;
+      const curHeading = headingRef.current;
+      const nav = isNavigatingRef.current;
+      const forwardBearing = nav
+        ? curHeading > 0
+          ? curHeading
+          : computeForwardRouteBearing(curPos, routeCoordsRef.current)
+        : curHeading;
 
       map.flyTo({
-        center: currentPosition,
-        zoom: isNavigating ? DRIVING_ZOOM_LEVEL : 16.5,
+        center: curPos,
+        zoom: nav ? DRIVING_ZOOM_LEVEL : 16.5,
         bearing: forwardBearing,
-        pitch: is3dView ? (isNavigating ? DRIVING_3D_PITCH : 52) : 0,
-        padding: isNavigating
+        pitch: is3dViewRef.current ? (nav ? DRIVING_3D_PITCH : 52) : 0,
+        padding: nav
           ? { top: 210, bottom: 90, left: 0, right: 0 }
           : { top: 0, bottom: 0, left: 0, right: 0 },
         duration: 750
@@ -839,7 +886,6 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     const activePois = getNearbyPois(currentPosition);
 
     activePois.forEach((poi) => {
-      // Skip if already in favorites or actively selected
       if (favoritesRef.current?.some((f) => f.name.toLowerCase() === poi.name.toLowerCase())) {
         return;
       }
@@ -1022,7 +1068,10 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   }, [selectedPlace]);
 
   return (
-    <div className="map-viewer-wrapper" style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div
+      className="map-viewer-wrapper"
+      style={{ width: '100%', height: '100%', position: 'relative' }}
+    >
       <div ref={mapContainerRef} className="map-viewport" />
 
       {/* Floating Re-center Pill Button during Active Navigation when user panned away */}
