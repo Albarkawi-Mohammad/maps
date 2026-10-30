@@ -1,0 +1,94 @@
+/* Global Reset & Base Typography */
+:root {
+  --bg-dark: #080c14;
+  --surface-glass: rgba(11, 18, 32, 0.82);
+  --surface-card: rgba(15, 23, 42, 0.9);
+  --border-glass: rgba(255, 255, 255, 0.12);
+  --emerald-neon: #10b981;
+  --emerald-glow: rgba(16, 185, 129, 0.35);
+  --amber-warn: #f59e0b;
+  --amber-glow: rgba(245, 158, 11, 0.45);
+  --blue-accent: #38bdf8;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --font-display: 'Outfit', sans-serif;
+  --font-body: 'Inter', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-dark);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* MapLibre full-screen canvas */
+.map-viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.map-viewport .maplibregl-canvas {
+  /* Native dark map tiles used - no canvas color inversion needed */
+  outline: none;
+}
+
+/* Custom 3D Vehicle Marker */
+.vehicle-nav-marker {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vehicle-pulsar {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--emerald-glow);
+  animation: pulse-ring 2s infinite ease-out;
+}
+
+.vehicle-cone {
+  position: absolute;
+  top: -24px;
+  width: 0;
+  height: 0;
+  border-left: 20px solid transparent;
+  border-right: 20px solid transparent;
+  border-bottom: 34px solid rgba(16, 185, 129, 0.18);
+  pointer-events: none;
+}
+
+.vehicle-core-arrow {
+  position: relative;
+  z-index: 2;
+  filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.8));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}

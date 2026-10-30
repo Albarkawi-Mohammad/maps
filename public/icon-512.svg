@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0e1726"/>
+      <stop offset="100%" stop-color="#040711"/>
+    </linearGradient>
+    <linearGradient id="neon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="180" stroke="#1e293b" stroke-width="8" fill="none"/>
+  <!-- Compass / Road Arrow -->
+  <path d="M256 90 L340 370 L256 310 L172 370 Z" fill="url(#neon)"/>
+  <!-- Lane lines -->
+  <line x1="200" y1="410" x2="200" y2="440" stroke="#38bdf8" stroke-width="12" stroke-linecap="round"/>
+  <line x1="256" y1="390" x2="256" y2="440" stroke="#10b981" stroke-width="14" stroke-linecap="round"/>
+  <line x1="312" y1="410" x2="312" y2="440" stroke="#38bdf8" stroke-width="12" stroke-linecap="round"/>
+</svg>
